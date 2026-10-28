@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Drum Kit｜ブラウザで叩けるドラムとループ録音（無料）｜ours-blanc lab</title>
+<meta name="description" content="キーボードやタッチ、ゲームパッド、MIDI で叩けるブラウザのドラムキット。2 小節のループ録音と 32 ステップのシーケンサー付き。Mac・Windows のスタンドアローンと VST3 / AU プラグインも無料です。">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="ours-blanc">
+<meta property="og:title" content="ours-blanc Drum Kit — ブラウザで叩けるドラムとループ録音">
+<meta property="og:description" content="10 種類のドラム、2 小節のループ録音、32 ステップのシーケンサー。Web 版と VST3 / AU / スタンドアローン（Mac・Windows）、すべて無料。">
+<meta property="og:image" content="https://ours-blanc.app/lab/drumkit/og.png">
+<meta property="og:url" content="https://ours-blanc.app/lab/drumkit/">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="canonical" href="https://ours-blanc.app/lab/drumkit/">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#D9DDD6">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,400..800&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap">
+<link rel="preload" href="drumkit.wasm" as="fetch" type="application/wasm" crossorigin>
+<style>
+/* A piece of hardware on a desk: a light grey-green casing, recessed controls, the ten drum colours do all the shouting. */
+:root {
+  --desk: #E8EAE5; --case: #D9DDD6; --well: #C9CEC6; --edge: #B4BAB1; --ink: #1D2022; --muted: #586058;
+  --rec: #E0412F; --lit: #FFFFFF;
+  --wide: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Zen Kaku Gothic New", "Hiragino Sans", "Yu Gothic", "Noto Sans JP", system-ui, sans-serif;
+  color-scheme: light;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--desk); }
+body { color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.8; -webkit-tap-highlight-color: transparent; }
+a { color: inherit; }
+:focus-visible { outline: 3px solid #2B6FD6; outline-offset: 2px; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 16px; }
+
+.top { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 18px 0; font-size: 14px; }
+.top a { text-decoration: none; color: var(--muted); }
+.top a:hover { color: var(--ink); }
+.top .home { display: flex; align-items: center; gap: 8px; color: var(--ink); font-family: var(--wide); font-weight: 700; }
+.top .home svg { width: 26px; height: 26px; }
+
+/* ---------- the device ---------- */
+.device { background: var(--case); border-radius: 22px; padding: clamp(14px, 3vw, 28px);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.7), 0 1px 0 var(--edge), 0 18px 40px -18px rgba(40,48,40,.45); }
+.plate { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+h1 { margin: 0; font-family: var(--wide); font-stretch: 125%; font-weight: 800; font-size: clamp(30px, 5.4vw, 52px); line-height: .95; letter-spacing: -0.01em; }
+h1 small { display: block; font-stretch: 100%; font-weight: 500; font-size: 14px; letter-spacing: 0; color: var(--muted); margin-bottom: 6px; }
+.status { margin: 0; color: var(--muted); font-size: 14px; min-height: 1.8em; max-width: 34em; }
+
+.transport { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; background: var(--well); border-radius: 14px; padding: 10px;
+  box-shadow: inset 0 2px 4px rgba(40,48,40,.18); }
+.key { font: 600 14px/1 var(--body); color: var(--ink); background: linear-gradient(#F4F5F2, #E2E5DF); border: 0; border-radius: 9px;
+  padding: 11px 14px; min-height: 44px; display: inline-flex; align-items: center; gap: 8px; cursor: pointer;
+  box-shadow: 0 2px 0 var(--edge), 0 3px 6px -2px rgba(40,48,40,.35); touch-action: manipulation; }
+.key:active { transform: translateY(2px); box-shadow: 0 0 0 var(--edge); }
+.key[aria-pressed="true"] { background: linear-gradient(#2A2E31, #1D2022); color: var(--lit); box-shadow: 0 2px 0 #000; }
+.key .led { width: 9px; height: 9px; border-radius: 50%; background: #9AA39A; }
+#rec[aria-pressed="true"] { background: linear-gradient(#EE5A48, var(--rec)); box-shadow: 0 2px 0 #9B2216; }
+#rec .led { background: var(--rec); }
+#rec[aria-pressed="true"] .led { background: #fff; animation: blink 1s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .25; } }
+#play svg { width: 12px; height: 12px; }
+#play .i-stop, #play[aria-pressed="true"] .i-play { display: none; }
+#play[aria-pressed="true"] .i-stop { display: inline; }
+#clear { position: relative; overflow: hidden; }
+#clear::after { content: ""; position: absolute; left: 0; bottom: 0; height: 3px; width: 0; background: var(--rec); }
+#clear.holding::after { width: 100%; transition: width .6s linear; }
+#clear.done { color: var(--rec); }
+.tempo { display: inline-flex; align-items: center; gap: 4px; background: #1D2022; border-radius: 9px; padding: 4px; }
+.tempo button { width: 36px; height: 36px; border: 0; border-radius: 7px; background: #33383B; color: #fff; font-size: 18px; cursor: pointer; touch-action: manipulation; }
+.tempo input { width: 3.4em; background: transparent; border: 0; color: #FFD25A; font: 700 22px/1 var(--wide); font-stretch: 75%; text-align: center; -moz-appearance: textfield; }
+.tempo input::-webkit-inner-spin-button { -webkit-appearance: none; }
+.tempo label { color: #9AA39A; font-size: 12px; padding-right: 8px; }
+.spacer { flex: 1; }
+.vol { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.vol input { width: 96px; accent-color: #1D2022; }
+
+.loopbar { height: 6px; background: var(--well); border-radius: 3px; margin: 16px 2px 14px; overflow: hidden; }
+#pos { height: 100%; background: var(--ink); transform-origin: left; transform: scaleX(0); }
+#pos.rec { background: var(--rec); }
+
+.deck { display: grid; grid-template-columns: minmax(0, 1fr) 14px; gap: 14px; }
+.pads { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: clamp(8px, 1.6vw, 14px); }
+.pad { --c: #888; position: relative; aspect-ratio: 1.6; border: 0; border-radius: 14px; cursor: pointer; padding: 10px; text-align: left;
+  background: color-mix(in srgb, var(--c) 82%, #fff); color: var(--ink); touch-action: none; user-select: none; -webkit-user-select: none;
+  box-shadow: inset 0 -5px 0 color-mix(in srgb, var(--c) 70%, #000), 0 3px 0 var(--edge); display: flex; flex-direction: column; justify-content: space-between; }
+.pad-name { font: 800 clamp(12px, 1.9vw, 19px)/1 var(--wide); font-stretch: 112%; letter-spacing: .02em; }
+.pad kbd { align-self: flex-end; font: 600 12px/1 var(--wide); color: var(--ink); background: rgba(255,255,255,.45); border-radius: 5px; padding: 4px 6px; }
+.pad.hit { animation: hit .22s ease-out; }
+@keyframes hit { 0% { background: color-mix(in srgb, var(--c) 30%, #fff); transform: translateY(3px); box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--c) 70%, #000), 0 0 0 var(--edge); } }
+.meter { background: var(--well); border-radius: 7px; overflow: hidden; display: flex; align-items: flex-end; box-shadow: inset 0 2px 4px rgba(40,48,40,.2); }
+#meter { width: 100%; height: 100%; background: linear-gradient(to top, #3DBB80 70%, #F2C230 88%, var(--rec)); transform-origin: bottom; transform: scaleY(0); }
+
+/* ---------- sequencer ---------- */
+.seq { margin-top: 22px; background: #23272A; border-radius: 16px; padding: 14px 14px 10px; color: #C9CEC6; }
+.seq-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; margin: 0 2px 10px; }
+.seq h2 { margin: 0; font: 700 18px/1.2 var(--wide); font-stretch: 112%; color: #fff; }
+.seq-head p { margin: 0; font-size: 13px; }
+.scroller { overflow-x: auto; padding-bottom: 6px; }
+.grid { display: grid; grid-template-columns: 64px repeat(32, minmax(17px, 1fr)); gap: 3px; min-width: 700px; }
+.row-name { font: 700 11px/1 var(--wide); font-stretch: 100%; color: var(--c); display: flex; align-items: center; }
+.cell { --c: #888; height: 26px; border: 0; padding: 0; border-radius: 4px; background: #31363A; cursor: pointer; }
+.cell.beat { background: #3A4044; }
+.cell.bar { margin-left: 6px; }
+.cell.on { background: var(--c); }
+.cell.now { box-shadow: inset 0 0 0 2px #fff; }
+.cell:hover { filter: brightness(1.25); }
+
+/* ---------- reading ---------- */
+.copy { padding: 56px 0 24px; display: grid; gap: 56px; }
+.copy h2 { font: 800 clamp(22px, 3vw, 30px)/1.2 var(--wide); font-stretch: 112%; margin: 0 0 14px; }
+.copy p { margin: 0 0 12px; max-width: 40em; }
+.cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px; }
+@media (max-width: 820px) { .cols { grid-template-columns: minmax(0, 1fr); } }
+.cols h3 { margin: 0 0 8px; font: 700 17px/1.3 var(--wide); }
+dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 14.5px; }
+dt { font-weight: 700; white-space: nowrap; }
+dd { margin: 0; color: var(--muted); }
+kbd.k { font: 600 12.5px/1 var(--wide); background: #fff; border: 1px solid var(--edge); border-bottom-width: 2px; border-radius: 5px; padding: 3px 6px; }
+.dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin: 22px 0 14px; max-width: 760px; }
+@media (max-width: 620px) { .dl { grid-template-columns: minmax(0, 1fr); } }
+.dl a { display: grid; gap: 4px; text-decoration: none; background: var(--case); border-radius: 14px; padding: 18px 20px; box-shadow: 0 2px 0 var(--edge); }
+.dl a:hover { background: #E3E6E0; }
+.dl b { font: 800 20px/1.2 var(--wide); font-stretch: 112%; }
+.dl span { color: var(--muted); font-size: 14px; }
+.note { color: var(--muted); font-size: 14px; }
+#midi-state { font-size: 14px; color: var(--muted); display: block; margin-top: 8px; }
+footer { border-top: 1px solid var(--edge); padding: 22px 0 40px; font-size: 13px; color: var(--muted); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+footer a { text-decoration: none; }
+
+@media (max-width: 640px) {
+  .pads { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+  .pad { aspect-ratio: .8; border-radius: 10px; padding: 7px 5px; }
+  .pad-name { font-size: 10.5px; font-stretch: 85%; }
+  .pad kbd { display: none; }
+  .vol { display: none; }
+  .tempo label { display: none; }
+  .transport { gap: 8px; }
+  .key { padding: 10px 11px; }
+  .deck { grid-template-columns: minmax(0, 1fr); }
+  .meter { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .pad.hit { animation-duration: .01s; } #rec[aria-pressed="true"] .led { animation: none; } #clear.holding::after { transition: none; } }
+</style>
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"ours-blanc Drum Kit","applicationCategory":"MultimediaApplication","operatingSystem":"Web, macOS 11+, Windows 10/11","url":"https://ours-blanc.app/lab/drumkit/","image":"https://ours-blanc.app/lab/drumkit/og.png","description":"ブラウザで叩けるドラムキット。2 小節のループ録音と 32 ステップのシーケンサー。Mac・Windows のスタンドアローンと VST3 / AU プラグインも無料。","offers":{"@type":"Offer","price":"0","priceCurrency":"JPY"},"publisher":{"@type":"Organization","name":"ours-blanc","url":"https://ours-blanc.app/"},"author":{"@type":"Person","@id":"https://yusuke-omura.pages.dev/#person","name":"大村優介","alternateName":"Yusuke Omura","url":"https://yusuke-omura.pages.dev/"}}</script>
+</head>
+<body>
+<div class="wrap">
+  <nav class="top" aria-label="サイト内">
+    <a class="home" href="/lab/"><svg viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="16" fill="#1D3557"/><circle cx="21" cy="22" r="7" fill="#F3F6F9"/><circle cx="43" cy="22" r="7" fill="#F3F6F9"/><ellipse cx="32" cy="36" rx="17" ry="15" fill="#F3F6F9"/><circle cx="26" cy="33" r="2" fill="#1D3557"/><circle cx="38" cy="33" r="2" fill="#1D3557"/><ellipse cx="32" cy="41" rx="3.2" ry="2.4" fill="#1D3557"/></svg>ours-blanc lab</a>
+    <a href="#download">プラグイン版をダウンロード</a>
+  </nav>
+
+  <main>
+    <section class="device" aria-label="ドラムキット">
+      <div class="plate">
+        <h1><small>ours-blanc</small>Drum Kit</h1>
+        <p class="status" id="status" aria-live="polite">パッドを叩くと音が出ます。録音してループを作れます</p>
+      </div>
+
+      <div class="transport">
+        <button class="key" id="play" type="button" aria-pressed="false"><svg viewBox="0 0 12 12" aria-hidden="true"><path class="i-play" d="M1 0l11 6-11 6z" fill="currentColor"/><rect class="i-stop" x="1" y="1" width="10" height="10" fill="currentColor"/></svg><span>再生</span></button>
+        <button class="key" id="rec" type="button" aria-pressed="false"><i class="led" aria-hidden="true"></i>録音</button>
+        <button class="key" id="clear" type="button" title="長押しでループを消します">長押しで消去</button>
+        <div class="tempo"><button id="bpm-down" type="button" aria-label="テンポを下げる">−</button><input id="bpm" type="number" min="40" max="240" value="100" aria-label="テンポ（BPM）"><button id="bpm-up" type="button" aria-label="テンポを上げる">+</button><label for="bpm">BPM</label></div>
+        <button class="key" id="click" type="button" aria-pressed="true">クリック</button>
+        <button class="key" id="quant" type="button" aria-pressed="true" title="録音した音を 16 分音符にそろえます">クオンタイズ</button>
+        <span class="spacer"></span>
+        <label class="vol">音量 <input id="vol" type="range" min="0" max="1.4" step="0.01" value="1"></label>
+      </div>
+
+      <div class="loopbar" aria-hidden="true"><div id="pos"></div></div>
+
+      <div class="deck">
+        <div class="pads" id="pads"></div>
+        <div class="meter" aria-hidden="true"><div id="meter"></div></div>
+      </div>
+
+      <div class="seq" id="sequencer">
+        <div class="seq-head">
+          <h2>シーケンサー</h2>
+          <p>マスを押すと 16 分音符で打ち込めます。録音した音もここに並びます（2 小節）</p>
+        </div>
+        <div class="scroller"><div class="grid" id="grid" role="group" aria-label="32 ステップのシーケンサー"></div></div>
+      </div>
+    </section>
+
+    <div class="copy">
+      <section>
+        <h2>叩き方</h2>
+        <p>パソコンのキーボード、タッチ、ゲームパッド、MIDI キーボードのどれでも叩けます。録音を押すと再生が始まり、叩いた音が 2 小節のループに重なっていきます。打ち込んだパターンはこのブラウザに保存されます。</p>
+        <div class="cols">
+          <div>
+            <h3>キーボード</h3>
+            <dl>
+              <dt><kbd class="k">A</kbd>〜<kbd class="k">;</kbd></dt><dd>パッド（左からキック、スネア、クラップ…）。<kbd class="k">Z</kbd>〜<kbd class="k">/</kbd> の段も同じ</dd>
+              <dt><kbd class="k">Shift</kbd></dt><dd>押しながら叩くと強く</dd>
+              <dt><kbd class="k">Space</kbd></dt><dd>再生 / 停止</dd>
+              <dt><kbd class="k">R</kbd></dt><dd>録音のオン / オフ</dd>
+              <dt><kbd class="k">Delete</kbd></dt><dd>長押しでループを消去</dd>
+              <dt><kbd class="k">M</kbd> <kbd class="k">Q</kbd></dt><dd>クリック、クオンタイズ</dd>
+            </dl>
+          </div>
+          <div>
+            <h3>ゲームパッド</h3>
+            <dl>
+              <dt>ボタン</dt><dd>下 キック、右 スネア、左 クローズド、上 オープン</dd>
+              <dt>十字キー</dt><dd>タム 1・2・3、右 クラップ</dd>
+              <dt>L2 / L3</dt><dd>クラッシュ、ライド</dd>
+              <dt>L1</dt><dd>再生 / 停止</dd>
+              <dt>R1</dt><dd>録音（長押しで消去）</dd>
+              <dt>START</dt><dd>クリック</dd>
+            </dl>
+            <p class="note">携帯ゲーム機 R36S 版と同じ配置です。</p>
+          </div>
+          <div>
+            <h3>MIDI</h3>
+            <p>電子ドラムや MIDI キーボードをつないで叩けます。音の並びは General MIDI のドラム配置（36 キック、38 スネア、42 クローズドなど）です。Chrome と Edge で使えます。</p>
+            <button class="key" id="midi" type="button">MIDI 機器を使う</button>
+            <span id="midi-state" aria-live="polite"></span>
+          </div>
+        </div>
+      </section>
+
+      <section id="download">
+        <h2>Mac・Windows 版と DAW 用プラグイン</h2>
+        <p>同じドラムキットを、単体のアプリとしても、DAW のプラグイン（VST3 / AU）としても使えます。DAW では MIDI ノートで鳴らせて、録音とシーケンサーは DAW のテンポと再生位置に合わせて動きます。無料です。</p>
+        <div class="dl">
+          <a href="ours-blanc-DrumKit-mac.pkg" download><b>Mac</b><span>macOS 11 以降・Apple Silicon / Intel<br>スタンドアローン、VST3、AU</span></a>
+          <a href="ours-blanc-DrumKit-windows.exe" download><b>Windows</b><span>Windows 10 / 11（64 ビット）<br>スタンドアローン、VST3</span></a>
+        </div>
+        <p class="note" id="installer-note">いまは開発者の署名なしで配布しています。Mac で「開発元を検証できません」と出たら、システム設定の「プライバシーとセキュリティ」で「このまま開く」を押してください。Windows で青い画面が出たら「詳細情報」から「実行」を選びます。</p>
+      </section>
+
+      <section>
+        <h2>R36S 版</h2>
+        <p>このドラムキットは、もともと携帯ゲーム機 R36S 用に作りました。音を作る部分は C で書いた同じプログラムで、R36S では RetroArch のコア、ここでは WebAssembly、プラグインでは JUCE の中で動いています。</p>
+        <p><a href="r36s-drumkit.zip" download>R36S 版をダウンロード（Ports 用）</a> — 展開した <code>ports</code> フォルダの中身を、microSD カードの <code>EASYROMS/ports/</code> にコピーすると、メニューの Ports に「Drum Kit」が並びます。</p>
+      </section>
+    </div>
+  </main>
+
+  <footer>
+    <span>© ours-blanc</span>
+    <span><a href="https://github.com/SpiceOfLife/ours-blanc-drumkit">ソースコード（GitHub）</a></span>
+  </footer>
+</div>
+<script src="app.js"></script>
+</body>
+</html>
