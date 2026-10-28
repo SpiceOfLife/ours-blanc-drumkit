@@ -1,0 +1,131 @@
+# ours-blanc Drum Kit: engine tests → R36S core / web build / Mac (universal) / Windows → pluginval → installers
+name: Build
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  VERSION: 1.0.${{ github.run_number }}
+
+jobs:
+  engine:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: ツールチェーン
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q gcc-aarch64-linux-gnu
+          pip install --break-system-packages -q ziglang
+      - name: エンジンと R36S コアのテスト
+        run: make test
+      - name: R36S 用パッケージ（aarch64）
+        run: |
+          rm -f dist/drumkit_libretro.so
+          make package
+          if aarch64-linux-gnu-objdump -T dist/drumkit_libretro.so | grep -E "GLIBC_2\.(3[0-9])"; then echo "::error::glibc 2.29 より新しいシンボルがあります"; exit 1; fi
+      - name: Web 版
+        run: |
+          make web
+          cd dist/web && zip -q -r ../ours-blanc-DrumKit-web.zip .
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ours-blanc-DrumKit-r36s-web
+          path: |
+            dist/r36s-drumkit.zip
+            dist/ours-blanc-DrumKit-web.zip
+
+  mac:
+    needs: engine
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - name: ビルド（arm64 + x86_64）
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          status=0
+          cmake --build build --config Release -j4 > build.log 2>&1 || status=$?
+          grep -E "error:|warning: " build.log | grep -v "_deps/" | sort -u | head -40 | sed 's/^/::warning::/' || true
+          if [ $status -ne 0 ]; then tail -40 build.log; exit $status; fi
+          ctest --test-dir build --output-on-failure
+      - name: pluginval（AU / VST3）
+        run: |
+          curl -sSL -o pv.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_macOS.zip
+          unzip -q pv.zip
+          ART="build/OursBlancDrumKit_artefacts/Release"
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "$ART/AU/ours-blanc Drum Kit.component" ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --validate-in-process --skip-gui-tests "$ART/VST3/ours-blanc Drum Kit.vst3"
+          ./pluginval.app/Contents/MacOS/pluginval --strictness-level 5 --validate-in-process --skip-gui-tests "$HOME/Library/Audio/Plug-Ins/Components/ours-blanc Drum Kit.component"
+      - name: インストーラー（.pkg）
+        env:
+          MAC_APP_IDENTITY: ${{ secrets.MAC_APP_IDENTITY }}
+          MAC_INSTALLER_IDENTITY: ${{ secrets.MAC_INSTALLER_IDENTITY }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+        run: bash installer/mac/build_pkg.sh build/OursBlancDrumKit_artefacts/Release "$VERSION" dist
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ours-blanc-DrumKit-mac
+          path: dist/*.pkg
+
+  windows:
+    needs: engine
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - name: ビルド（x64）
+        run: |
+          cmake -S . -B build -A x64
+          cmake --build build --config Release -j 4 *> build.log
+          if ($LASTEXITCODE -ne 0) { Select-String -Path build.log -Pattern " error |error:|: fatal" | Select-Object -First 40 | ForEach-Object { "::error::$($_.Line)" }; Get-Content build.log -Tail 30; exit 1 }
+          ctest --test-dir build -C Release --output-on-failure
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: pluginval（VST3）
+        shell: bash
+        run: |
+          curl -sSL -o pv.zip https://github.com/Tracktion/pluginval/releases/download/v1.0.4/pluginval_Windows.zip
+          unzip -q pv.zip
+          ./pluginval.exe --strictness-level 5 --validate-in-process --skip-gui-tests "build/OursBlancDrumKit_artefacts/Release/VST3/ours-blanc Drum Kit.vst3"
+      - name: インストーラー（Inno Setup）
+        shell: pwsh
+        run: |
+          if (-not (Get-Command iscc -ErrorAction SilentlyContinue)) { choco install innosetup -y --no-progress | Out-Null }
+          $iscc = (Get-Command iscc -ErrorAction SilentlyContinue).Source
+          if (-not $iscc) { $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" }
+          & $iscc "/DVersion=$env:VERSION" "/DArtefacts=$PWD\build\OursBlancDrumKit_artefacts\Release" "/DOutDir=$PWD\dist" installer\windows\drumkit.iss
+      - uses: actions/upload-artifact@v5
+        with:
+          name: ours-blanc-DrumKit-windows
+          path: dist/*.exe
+
+  # main のビルドは GitHub Releases に置く（無料配布。ours-blanc.app/lab/drumkit/ にも同じものを載せる）
+  release:
+    needs: [engine, mac, windows]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+      - name: リリースを作成
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          gh release create "v$VERSION" dist/* -R "$GITHUB_REPOSITORY" \
+            --title "ours-blanc Drum Kit $VERSION" \
+            --notes "Mac（.pkg・Apple Silicon / Intel）と Windows（.exe・x64）のインストーラー：スタンドアローン + VST3（Mac は AU も）。R36S 用パッケージと Web 版も同梱。無料。"
